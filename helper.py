@@ -160,11 +160,6 @@ def setup_model(model_ft, device):
     model_ft.fc = nn.Linear(num_ftrs, 37)
     model_ft = model_ft.to(device)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-    return criterion, optimizer, scheduler
-
 def save_best_model(model_ft):
     if not os.path.exists(os.path.join(os.getcwd(), 'model')):
         os.mkdir(os.path.join(os.getcwd(), 'model'))
@@ -200,7 +195,7 @@ def forward_and_backward_pass(dataloaders, phase, device, optimizer, model, crit
 
 def update_loss(running_loss, dataset_sizes, phase, running_corrects, best_acc, model):
     epoch_loss = running_loss / dataset_sizes[phase]
-    epoch_acc = running_corrects.double() / dataset_sizes[phase]
+    epoch_acc = float(running_corrects) / dataset_sizes[phase]
 
     print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
 
@@ -214,3 +209,39 @@ def print_training_results(since, best_acc):
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
     print('Best val Acc: {:4f}'.format(best_acc))
+
+def train_model(model, device, dataloaders, dataset_sizes, num_epochs=25):
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+
+    since = time.time()
+
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_acc = 0.0
+
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        print('-' * 10)
+
+        # Each epoch has a training and validation phase
+        for phase in ['train', 'val']:
+            if phase == 'train':
+                model.train()  # Set model to training mode
+            else:
+                model.eval()   # Set model to evaluate mode
+
+            running_loss = 0.0
+            running_corrects = 0
+
+            forward_and_backward_pass(dataloaders, phase, device, optimizer, model, criterion, running_loss, running_corrects, scheduler)
+
+            best_model_wts = update_loss(running_loss, dataset_sizes, phase, running_corrects, best_acc, model)
+
+        print()
+
+    print_training_results(since, best_acc)
+
+    # Load final best model weights
+    model.load_state_dict(best_model_wts)
+    return model
