@@ -1,16 +1,20 @@
 import os
 import random
 import re
+import copy
+import time
 import shutil
 import tarfile
 from os.path import basename, isfile
 from pathlib import Path
+from re import split
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
+import torch.optim as optim
 from ipywidgets import interact
 from PIL import Image
 from torchvision import datasets, models, transforms
@@ -37,6 +41,7 @@ def fetch_and_untar(uri, path):
         tar.extractall()
     
     move_images_into_labelled_directories(path)
+    split_train_val(path)
 
 def move_images_into_labelled_directories(image_dir):
     images_path = Path(image_dir)
@@ -56,7 +61,7 @@ def move_images_into_labelled_directories(image_dir):
 def split_train_val(path):
     if os.path.isdir(path):
         return
-        
+
     for subdir, dirs, files in os.walk(path):
         if subdir == path:
             if not os.path.exists(os.path.join(path, 'val')):
@@ -155,6 +160,11 @@ def setup_model(model_ft, device):
     model_ft.fc = nn.Linear(num_ftrs, 37)
     model_ft = model_ft.to(device)
 
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+    return criterion, optimizer, scheduler
+
 def save_best_model(model_ft):
     if not os.path.exists(os.path.join(os.getcwd(), 'model')):
         os.mkdir(os.path.join(os.getcwd(), 'model'))
@@ -165,3 +175,42 @@ def save_best_model(model_ft):
 
 def use_gpu_if_avail():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    return device
+    
+def forward_and_backward_pass(dataloaders, phase, device, optimizer, model, criterion, running_loss, running_corrects, scheduler):
+    for inputs, labels in dataloaders[phase]:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        optimizer.zero_grad()
+
+        with torch.set_grad_enabled(phase == 'train'):
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            loss = criterion(outputs, labels)
+
+            if phase == 'train':
+                loss.backward()
+                optimizer.step()
+
+        running_loss += loss.item() * inputs.size(0)
+        running_corrects += torch.sum(preds == labels.data)
+    if phase == 'train':
+        scheduler.step()
+
+def update_loss(running_loss, dataset_sizes, phase, running_corrects, best_acc, model):
+    epoch_loss = running_loss / dataset_sizes[phase]
+    epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+    print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
+
+    # deep copy the model
+    if phase == 'val' and epoch_acc > best_acc:
+        best_acc = epoch_acc
+        best_model_wts = copy.deepcopy(model.state_dict())
+        return best_model_wts
+
+def print_training_results(since, best_acc):
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    print('Best val Acc: {:4f}'.format(best_acc))
