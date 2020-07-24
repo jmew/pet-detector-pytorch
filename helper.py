@@ -42,6 +42,7 @@ def fetch_and_untar(uri, path):
     
     move_images_into_labelled_directories(path)
     split_train_val(path)
+    return path
 
 def move_images_into_labelled_directories(image_dir):
     images_path = Path(image_dir)
@@ -119,7 +120,7 @@ def browse_images(digits):
         plt.show()
     interact(view_image, i=(0,n-1))
 
-def transform_images_to_tensors():
+def transform_images_to_tensors(dataset_path):
     data_transforms = {
         'train': transforms.Compose([
             transforms.RandomResizedCrop(224),
@@ -171,44 +172,17 @@ def save_best_model(model_ft):
 def use_gpu_if_avail():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     return device
-    
-def forward_and_backward_pass(dataloaders, phase, device, optimizer, model, criterion, running_loss, running_corrects, scheduler):
-    for inputs, labels in dataloaders[phase]:
-        inputs = inputs.to(device)
-        labels = labels.to(device)
 
-        optimizer.zero_grad()
-
-        with torch.set_grad_enabled(phase == 'train'):
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            loss = criterion(outputs, labels)
-
-            if phase == 'train':
-                loss.backward()
-                optimizer.step()
-
-        running_loss += loss.item() * inputs.size(0)
-        running_corrects += torch.sum(preds == labels.data)
-    if phase == 'train':
-        scheduler.step()
-
-def update_loss(running_loss, dataset_sizes, phase, running_corrects, best_acc, model):
-    epoch_loss = running_loss / dataset_sizes[phase]
-    epoch_acc = float(running_corrects) / dataset_sizes[phase]
-
-    print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
-
-    # deep copy the model
-    if phase == 'val' and epoch_acc > best_acc:
-        best_acc = epoch_acc
-        best_model_wts = copy.deepcopy(model.state_dict())
-        return best_model_wts
-
-def print_training_results(since, best_acc):
-    time_elapsed = time.time() - since
-    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-    print('Best val Acc: {:4f}'.format(best_acc))
+# For demo purposes for the sake of time
+# def train_model(model, device, dataloaders, dataset_sizes, num_epochs=25):
+#     print("Epoch 0/0")
+#     print("----------")
+#     print("train Loss: 1.7429 Acc: 0.4984")
+#     print("val Loss: 0.5585 Acc: 0.8297")
+#     print("")
+#     print("Training complete in 38m 41s")
+#     print("Best val Acc: 0.829730")
+#     return model
 
 def train_model(model, device, dataloaders, dataset_sizes, num_epochs=25):
     criterion = nn.CrossEntropyLoss()
@@ -234,13 +208,46 @@ def train_model(model, device, dataloaders, dataset_sizes, num_epochs=25):
             running_loss = 0.0
             running_corrects = 0
 
-            forward_and_backward_pass(dataloaders, phase, device, optimizer, model, criterion, running_loss, running_corrects, scheduler)
+            x = 0
 
-            best_model_wts = update_loss(running_loss, dataset_sizes, phase, running_corrects, best_acc, model)
+            for inputs, labels in dataloaders[phase]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+
+                optimizer.zero_grad()
+
+                with torch.set_grad_enabled(phase == 'train'):
+                    outputs = model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = criterion(outputs, labels)
+
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer.step()
+
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+
+                x+=1
+                print(x)
+            if phase == 'train':
+                scheduler.step()
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = float(running_corrects) / dataset_sizes[phase]
+
+            print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
+
+            # deep copy the model
+            if phase == 'val' and epoch_acc > best_acc:
+                best_acc = epoch_acc
+                best_model_wts = copy.deepcopy(model.state_dict())
 
         print()
 
-    print_training_results(since, best_acc)
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    print('Best val Acc: {:4f}'.format(best_acc))
 
     # Load final best model weights
     model.load_state_dict(best_model_wts)
